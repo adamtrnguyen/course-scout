@@ -21,11 +21,17 @@ class OrchestratedSummarizer(SummarizerInterface):
         gemini_key: str,
         groq_key: str | None = None,
         provider: str = "gemini",
+        summarizer_model: str | None = None,
+        verifier_model: str | None = None,
         scraper: ScraperInterface | None = None,
     ):
         """Initialize with API keys and preferred provider."""
         self.orchestrator = AgentOrchestrator(
-            gemini_key=gemini_key, groq_key=groq_key, preferred_provider=provider
+            gemini_key=gemini_key,
+            groq_key=groq_key,
+            preferred_provider=provider,
+            summarizer_model=summarizer_model,
+            verifier_model=verifier_model,
         )
         self.scraper = scraper
 

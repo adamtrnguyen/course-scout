@@ -2,9 +2,9 @@ import datetime
 import logging
 
 from mcp.server.fastmcp import FastMCP
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from telebot.application.digest import GenerateDigestUseCase
+from telebot.infrastructure.config import load_settings
 from telebot.infrastructure.logging_config import setup_logging
 from telebot.infrastructure.reporting import PDFRenderer
 from telebot.infrastructure.summarization import OrchestratedSummarizer
@@ -16,20 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 # Settings
-class Settings(BaseSettings):
-    tg_api_id: int
-    tg_api_hash: str
-    gemini_api_key: str
-    groq_api_key: str | None = None
-    phone_number: str | None = None
-    login_code: str | None = None
-    session_path: str = "telebot_session"
-
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+# Using central Settings
 
 
 try:
-    settings = Settings()  # type: ignore
+    settings = load_settings()
 except Exception as e:
     logger.error(f"Configuration error: {e}")
     raise
@@ -50,6 +41,8 @@ def get_use_case(provider: str = "gemini"):
         gemini_key=settings.gemini_api_key,
         groq_key=settings.groq_api_key,
         provider=provider,
+        summarizer_model=settings.summarizer_model,
+        verifier_model=settings.verifier_model,
         scraper=scraper,
     )
     return GenerateDigestUseCase(scraper, summarizer)

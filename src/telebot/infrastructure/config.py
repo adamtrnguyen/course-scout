@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = Field(None, alias="TELEGRAM_CHAT_ID")
     tg_notify_target: str | None = Field(None, alias="TG_NOTIFY_TARGET")
     preferred_provider: str = "groq"
+    summarizer_model: str | list[str] | None = Field(None, alias="SUMMARIZER_MODEL")
+    verifier_model: str | list[str] | None = Field(None, alias="VERIFIER_MODEL")
     phone_number: str | None = Field(None, alias="PHONE_NUMBER")
     login_code: str | None = None
     session_path: str = "telebot.session"
@@ -30,6 +32,8 @@ class Settings(BaseSettings):
     # Global YAML overrides
     lookback_days: int = 1
     report_format: str = "pdf"
+    timezone: str = "UTC"
+    window_mode: str = "rolling"  # Options: rolling, fixed
 
     tasks: list[dict[str, Any]] = []
 
@@ -56,5 +60,11 @@ def load_settings(config_path: str = "config.yaml") -> Settings:
 
             # Load tasks
             settings.tasks = config_data.get("tasks", [])
+
+    # Post-process models to support comma-separated strings
+    if isinstance(settings.summarizer_model, str):
+        settings.summarizer_model = [m.strip() for m in settings.summarizer_model.split(",")]
+    if isinstance(settings.verifier_model, str):
+        settings.verifier_model = [m.strip() for m in settings.verifier_model.split(",")]
 
     return settings

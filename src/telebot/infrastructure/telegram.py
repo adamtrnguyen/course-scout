@@ -27,7 +27,11 @@ class TelethonScraper(ScraperInterface):
         self.login_code = login_code
 
     async def get_messages(
-        self, channel_id: str | int, start_date: datetime.datetime, topic_id: int | None = None
+        self,
+        channel_id: str | int,
+        start_date: datetime.datetime,
+        end_date: datetime.datetime | None = None,
+        topic_id: int | None = None,
     ) -> list[TelegramMessage]:
         """Fetch messages from a channel/topic starting from a specific date."""
         # Prepare media directory
@@ -61,6 +65,11 @@ class TelethonScraper(ScraperInterface):
             async for message in client.iter_messages(
                 channel_id, offset_date=start_date, reverse=True, reply_to=topic_id
             ):
+                # Apply end_date filter if provided
+                if end_date and message.date > end_date:
+                    logger.debug(f"Reached end_date {end_date}. Stopping fetch.")
+                    break
+
                 if message.text or message.media:
                     telegram_msg = await self._process_message(
                         channel_id, message, topic_id, media_dir

@@ -34,11 +34,12 @@ class GeminiModel(str, Enum):
 class GroqModel(str, Enum):
     """Verified model identifiers for the Groq SDK."""
 
-    GPT_OSS_120B = "openai/gpt-oss-120b"
     LLAMA_3_3_70B = "llama-3.3-70b-versatile"
     LLAMA_3_1_8B = "llama-3.1-8b-instant"
-    GPT_OSS_20B = "openai/gpt-oss-20b"
     QWEN_3_32B = "qwen/qwen3-32b"
+    LLAMA_4_SCOUT = "meta-llama/llama-4-scout-17b-16e-instruct"
+    LLAMA_4_MAVERICK = "meta-llama/llama-4-maverick-17b-128e-instruct"
+    GPT_OSS_120B = "openai/gpt-oss-120b"
 
 
 # --- Schemas ---
@@ -139,63 +140,69 @@ class AIAgent:
     def __init__(
         self,
         provider: AIProvider,
-        model: str,
+        models: list[str],
         system_prompt: str,
         output_schema: type[BaseModel],
         rate_limiter: RateLimiter,
     ):
-        """Initialize with provider, model, prompt, and schema."""
+        """Initialize with provider, models, prompt, and schema."""
         self.provider = provider
-        self.model = model
+        self.models = models
         self.system_prompt = system_prompt
         self.output_schema = output_schema
         self.rate_limiter = rate_limiter
 
     def run(self, input_data: BaseModel) -> BaseModel:
-        """Execute the agent using the injected provider."""
-        retries = 0
-        max_retries = 5
+        """Execute the agent using the injected provider with fallback support."""
+        last_error = None
 
-        while retries < max_retries:
-            try:
-                self.rate_limiter.acquire()
-                logger.info(f"Agent {self.model} starting request (Attempt {retries + 1})...")
+        for model in self.models:
+            retries = 0
+            max_retries = 3
 
-                logger.debug(f"Agent {self.model} input data: {input_data.model_dump_json()}")
+            while retries < max_retries:
+                try:
+                    self.rate_limiter.acquire()
+                    logger.info(f"Agent {model} starting request (Attempt {retries + 1})...")
 
-                result = self.provider.generate_structured(
-                    model_id=self.model,
-                    system_prompt=self.system_prompt,
-                    input_data=input_data.model_dump_json(),
-                    output_schema=self.output_schema,
-                )
+                    logger.debug(f"Agent {model} input data: {input_data.model_dump_json()}")
 
-                logger.debug(f"Agent {self.model} raw result: {result}")
-                logger.info(f"Agent {self.model} request completed.")
-                return result
-
-            except Exception as e:
-                error_str = str(e).upper()
-                # Handle Rate Limits (429) across providers
-                # Handle Rate Limits (429) across providers
-                is_rate_limit = (
-                    "429" in error_str
-                    or "RESOURCE_EXHAUSTED" in error_str
-                    or "RATE_LIMIT" in error_str
-                )
-                if is_rate_limit:
-                    retries += 1
-                    wait_time = 65.0
-                    logger.warning(
-                        f"Rate limit hit. Sleeping {wait_time}s "
-                        f"before retry {retries}/{max_retries}..."
+                    result = self.provider.generate_structured(
+                        model_id=model,
+                        system_prompt=self.system_prompt,
+                        input_data=input_data.model_dump_json(),
+                        output_schema=self.output_schema,
                     )
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"Unexpected error in agent {self.model}: {e}")
-                    raise e
 
-        raise Exception("Max retries exceeded for Rate Limit")
+                    logger.debug(f"Agent {model} raw result: {result}")
+                    logger.info(f"Agent {model} request completed.")
+                    return result
+
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e).upper()
+                    # Handle Rate Limits (429) across providers
+                    is_rate_limit = (
+                        "429" in error_str
+                        or "RESOURCE_EXHAUSTED" in error_str
+                        or "RATE_LIMIT" in error_str
+                    )
+                    if is_rate_limit:
+                        retries += 1
+                        wait_time = 65.0
+                        logger.warning(
+                            f"Rate limit hit for {model}. Sleeping {wait_time}s "
+                            f"before retry {retries}/{max_retries}..."
+                        )
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"Error in agent {model}: {e}")
+                        # Non-rate-limit error: move to next model in list
+                        break
+
+            logger.warning(f"Model {model} failed. Trying next model in list if available...")
+
+        raise Exception(f"All models failed. Last error: {last_error}")
 
 
 # --- Agent Orchestrator ---
@@ -205,7 +212,12 @@ class AgentOrchestrator:
     """Manages interchangeable AI providers and agents."""
 
     def __init__(
-        self, gemini_key: str, groq_key: str | None = None, preferred_provider: str = "gemini"
+        self,
+        gemini_key: str,
+        groq_key: str | None = None,
+        preferred_provider: str = "gemini",
+        summarizer_model: str | None = None,
+        verifier_model: str | None = None,
     ):
         """Initialize with providers and preferred choice."""
         self.providers = {"gemini": GeminiProvider(gemini_key)}
@@ -219,16 +231,55 @@ class AgentOrchestrator:
 
         # Configure models and rate limits based on provider
         if self.preferred_provider == "groq":
-            self.model = GroqModel.GPT_OSS_120B
+            self.summarizer_models = summarizer_model or [
+                GroqModel.LLAMA_4_MAVERICK,
+                GroqModel.LLAMA_3_3_70B,
+                GroqModel.QWEN_3_32B,
+                GroqModel.GPT_OSS_120B,
+            ]
+            self.verifier_models = verifier_model or [
+                GroqModel.LLAMA_3_1_8B,
+                GroqModel.LLAMA_4_SCOUT,
+                GroqModel.QWEN_3_32B,
+            ]
+            self.summarizer_models = (
+                [self.summarizer_models]
+                if isinstance(self.summarizer_models, str)
+                else self.summarizer_models
+            )
+            self.verifier_models = (
+                [self.verifier_models]
+                if isinstance(self.verifier_models, str)
+                else self.verifier_models
+            )
             self.rate_limiter = RateLimiter(rpm=30)  # Groq is generous
         else:
-            self.model = GeminiModel.FLASH_3_PREVIEW
+            self.summarizer_models = summarizer_model or [
+                GeminiModel.FLASH_2_0,
+                GeminiModel.FLASH_1_5_LATEST,
+            ]
+            self.verifier_models = verifier_model or [
+                GeminiModel.FLASH_2_0,
+                GeminiModel.FLASH_LITE_2_0,
+            ]
+            self.summarizer_models = (
+                [self.summarizer_models]
+                if isinstance(self.summarizer_models, str)
+                else self.summarizer_models
+            )
+            self.verifier_models = (
+                [self.verifier_models]
+                if isinstance(self.verifier_models, str)
+                else self.verifier_models
+            )
             self.rate_limiter = RateLimiter(rpm=2)
 
-    def _get_agent(self, system_prompt: str, output_schema: type[BaseModel]) -> AIAgent:
+    def _get_agent(
+        self, models: list[str], system_prompt: str, output_schema: type[BaseModel]
+    ) -> AIAgent:
         return AIAgent(
             self.providers[self.preferred_provider],
-            self.model,
+            models,
             system_prompt,
             output_schema,
             self.rate_limiter,
@@ -236,6 +287,7 @@ class AgentOrchestrator:
 
     def get_summarizer_agent(self) -> AIAgent:
         return self._get_agent(
+            self.summarizer_models,
             """You are a Telegram Chat Summarizer. Analyze messages and extract:
 1. Executive summary (2-3 sentences)
 2. Digest items (courses, files, discussions, requests, announcements)
@@ -250,6 +302,7 @@ Return as valid JSON matching the schema.""",
 
     def get_verifier_agent(self) -> AIAgent:
         return self._get_agent(
+            self.verifier_models,
             """You are a Fact-Checking Verifier.
 Cross-reference the summary with raw messages to ensure:
 1. Contextual accuracy (did this person really say this?)

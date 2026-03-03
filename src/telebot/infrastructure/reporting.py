@@ -15,9 +15,9 @@ class PDFRenderer:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def render(self, digest: ChannelDigest, filename: str) -> str:
+    def render(self, digest: ChannelDigest, filename: str, output_dir: str | None = None) -> str:
         """Render a ChannelDigest to a PDF using the markdown-pdf library."""
-        return self.render_from_markdown(digest.to_markdown(), filename)
+        return self.render_from_markdown(digest.to_markdown(), filename, output_dir=output_dir)
 
     def _normalize_headers(self, md: str) -> str:
         """Normalize headers to avoid hierarchy errors (no skipping levels)."""
@@ -48,9 +48,13 @@ class PDFRenderer:
         code { background-color: #f1f3f5; padding: 2px 4px; border-radius: 4px; color: #e74c3c; }
         """
 
-    def render_from_markdown(self, markdown_text: str, filename: str) -> str:
+    def render_from_markdown(
+        self, markdown_text: str, filename: str, output_dir: str | None = None
+    ) -> str:
         """Render a raw Markdown string to a professional PDF report."""
-        output_path = os.path.join(self.output_dir, filename)
+        target_dir = output_dir or self.output_dir
+        output_path = os.path.join(target_dir, filename)
+        os.makedirs(target_dir, exist_ok=True)
         markdown_text = self._normalize_headers(markdown_text)
 
         try:
