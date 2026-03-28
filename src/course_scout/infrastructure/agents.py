@@ -56,7 +56,6 @@ class SummarizerOutputSchema(BaseModel):
 
     items: list[DigestItem] = Field(default_factory=list, description="Extracted items")
     key_links: list[LinkItem] = Field(default_factory=list, description="Important URLs mentioned")
-    action_items: list[str] = Field(default_factory=list, description="Potential tasks identified")
 
 
 
@@ -166,7 +165,6 @@ class AgentOrchestrator:
 EXTRACT from messages:
 1. Digest items — categorize each as: course, file, discussion, request, or announcement
 2. Key links — URLs shared in messages (course pages, downloads, references)
-3. Action items — things the community needs to follow up on
 
 INTEREST FILTER — prioritize:
 - 2D illustration, character design, concept art

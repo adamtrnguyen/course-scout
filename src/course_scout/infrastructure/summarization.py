@@ -86,7 +86,6 @@ class OrchestratedSummarizer(SummarizerInterface):
                 date=digest_date,
                 summaries=[],
                 items=draft.items,
-                action_items=draft.action_items,
                 key_links=grounded_links,
             )
 
@@ -119,15 +118,12 @@ class OrchestratedSummarizer(SummarizerInterface):
         """Merge multiple chunk summaries into one."""
         merged_items = []
         merged_links = []
-        merged_actions = []
         for s in summaries:
             merged_items.extend(s.items)
             merged_links.extend(s.key_links)
-            merged_actions.extend(s.action_items)
         return SummarizerOutputSchema(
             items=merged_items,
             key_links=merged_links,
-            action_items=merged_actions,
         )
 
     def _prepare_structured_input(

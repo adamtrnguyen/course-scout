@@ -37,7 +37,6 @@ class ChannelDigest(BaseModel):
     date: datetime.date
     summaries: list[str]  # Used for the executive summary
     items: list[DigestItem] = Field(default_factory=list)
-    action_items: list[str] = Field(default_factory=list)
     key_links: list[LinkItem] = Field(default_factory=list)
 
     def to_markdown(self) -> str:
@@ -47,7 +46,6 @@ class ChannelDigest(BaseModel):
 
         md = self._add_executive_summary(md)
         md = self._add_categorized_items(md)
-        md = self._add_action_items(md)
         md = self._add_key_links(md)
 
         return md.strip()
@@ -81,15 +79,6 @@ class ChannelDigest(BaseModel):
                     else:
                         md += f"- **{item.title}**: {item.description}\n"
                 md += "\n"
-        return md
-
-    def _add_action_items(self, md: str) -> str:
-        """Add the action items section to markdown."""
-        if self.action_items:
-            md += "## ✅ Action Items\n\n"
-            for item in self.action_items:
-                md += f"- [ ] {item}\n"
-            md += "\n"
         return md
 
     def _add_key_links(self, md: str) -> str:

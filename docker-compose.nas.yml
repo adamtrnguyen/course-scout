@@ -1,0 +1,32 @@
+services:
+  # One-shot scanner — exits after completing scan
+  course-scout:
+    build: .
+    container_name: course-scout
+    command: ["course-scout", "scan", "--pdf"]
+    volumes:
+      - cs-reports:/app/reports
+      - cs-logs:/app/logs
+      - cs-media:/app/media_cache
+      - /home/Adam/.claude:/home/appuser/.claude:ro
+      - /home/Adam/.claude.json:/home/appuser/.claude.json:ro
+      - /home/Adam/course-scout-session/course_scout.session:/app/course_scout.session
+      - /home/Adam/.local/bin/claude:/usr/local/bin/claude:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: "no"
+
+  # Triggers course-scout daily at 1am
+  scheduler:
+    image: docker:cli
+    container_name: course-scout-cron
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: sh
+    command: -c "echo '0 1 * * * docker start -a course-scout' | crontab - && crond -f -l 2"
+    restart: unless-stopped
+
+volumes:
+  cs-reports:
+  cs-logs:
+  cs-media:

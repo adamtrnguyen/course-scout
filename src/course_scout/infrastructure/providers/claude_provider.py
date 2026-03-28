@@ -99,8 +99,12 @@ class ClaudeProvider(AIProvider):
         options = ClaudeAgentOptions(
             model=model_id,
             system_prompt=system_prompt,
-            max_turns=2,
-            permission_mode="bypassPermissions",
+            max_turns=1,
+            setting_sources=[],
+            disallowed_tools=[
+                "Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit",
+                "Glob", "Grep", "WebFetch", "WebSearch", "Agent",
+            ],
             thinking=self._thinking_config(),
             effort=self.effort,
             output_format={"type": "json_schema", "schema": schema},

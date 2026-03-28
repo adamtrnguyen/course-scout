@@ -278,7 +278,7 @@ async def _scan_all_tasks(scraper, settings, tasks, days, include_today=False):
             )
             digest = await summarizer.summarize(messages, topic_id=task.topic_id)
             if digest:
-                msg_count = len(digest.items) + len(digest.action_items)
+                msg_count = len(digest.items)
                 topic_log.info(f"Completed: {msg_count} items extracted")
                 typer.echo(f"   ✅ {name}: {msg_count} items")
                 # Log usage to topic file
@@ -325,8 +325,6 @@ async def _generate_executive_summary(all_results, date_str):
             cat = item.category.upper()
             links = f" | Links: {', '.join(item.links[:2])}" if item.links else ""
             condensed += f"- [{cat}] {item.title}: {item.description[:150]}{links}\n"
-        if result.action_items:
-            condensed += f"Actions: {'; '.join(result.action_items[:3])}\n"
 
     prompt = f"""Today's ({date_str}) scan results from art community Telegram channels:
 

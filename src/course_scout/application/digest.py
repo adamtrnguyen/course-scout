@@ -58,5 +58,4 @@ class GenerateDigestUseCase:
                 summaries=[f"Summarization Incomplete: {e}"],
                 items=[],
                 key_links=[],
-                action_items=[],
             )
