@@ -46,11 +46,14 @@ ul, ol {
     margin-bottom: 12px;
 }
 li {
-    margin-bottom: 6px;
+    margin-bottom: 12px;
     line-height: 1.5;
 }
 li strong {
     color: #16213e;
+}
+li p {
+    margin: 2px 0;
 }
 hr {
     border: none;

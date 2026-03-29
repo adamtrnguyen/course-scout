@@ -73,12 +73,17 @@ class ChannelDigest(BaseModel):
             if cat_items:
                 md += f"{cat_title}\n\n"
                 for item in cat_items:
+                    # Line 1: Title with links
                     if item.links:
                         links_md = ", ".join(f"[link]({url})" for url in item.links)
-                        md += f"- **{item.title}** ({links_md}): {item.description}\n"
+                        md += f"- **{item.title}** ({links_md})\n"
                     else:
-                        md += f"- **{item.title}**: {item.description}\n"
-                md += "\n"
+                        md += f"- **{item.title}**\n"
+                    # Line 2: Author metadata (category already shown by section header)
+                    if item.author and item.author.lower() not in ("unknown", "none", "n/a"):
+                        md += f"  *{item.author}*\n"
+                    # Line 3: Description
+                    md += f"  {item.description}\n\n"
         return md
 
     def _add_key_links(self, md: str) -> str:
