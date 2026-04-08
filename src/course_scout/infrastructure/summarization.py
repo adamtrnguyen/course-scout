@@ -75,17 +75,21 @@ class OrchestratedSummarizer(SummarizerInterface):
                 )
                 draft = self._merge_summaries(chunk_summaries)
 
+            # Convert flat LLM items to discriminated domain types
+            domain_items = draft.to_domain_items()
+
             # Programmatic grounding (replaces LLM verifier)
             grounded_links = await self._ground_links(
                 draft.key_links, link_map, all_raw_urls, messages, topic_id
             )
-            self._ground_items(draft.items, link_map, all_raw_urls)
+            self._ground_items(domain_items, link_map, all_raw_urls)
+            self._backfill_links(domain_items, link_map)
 
             return ChannelDigest(
                 channel_name=topic_title,
                 date=digest_date,
                 summaries=[],
-                items=draft.items,
+                items=domain_items,
                 key_links=grounded_links,
             )
 
@@ -106,8 +110,8 @@ class OrchestratedSummarizer(SummarizerInterface):
             messages=chunk,
             topic_context=f"Topic: {topic_title}, Date: {digest_date}",
             chat_message=(
-                "Extract courses, discussions, files, and requests. "
-                "Focus on grounding every item in a source message ID."
+                "Extract structured items. Use msg_ids, instructor, platform, status, "
+                "priority, password fields. Keep description telegraphic — facts only."
             ),
         )
         summarizer = self.orchestrator.get_summarizer_agent()
@@ -133,8 +137,6 @@ class OrchestratedSummarizer(SummarizerInterface):
         structured = []
         for m in messages:
             content = str(m.text) if m.text else "[Media/File]"
-            if m.link:
-                content += f" [Link: {m.link}]"
             structured.append(
                 StructuredMessage(
                     id=m.id,
@@ -165,11 +167,45 @@ class OrchestratedSummarizer(SummarizerInterface):
 
     @staticmethod
     def _ground_items(items, link_map, raw_urls):
-        """Filter hallucinated links in items."""
+        """Filter hallucinated links in items.
+
+        Keeps a link if it:
+        - Matches a URL from raw message text
+        - Matches a message's .link property (from link_map)
+        - Is a t.me link whose msg ID exists in this batch or in the item's msg_ids
+        - Is an external (non-t.me) URL (trusted from LLM extraction)
+        """
+        valid_msg_ids = set(link_map.keys())
         for item in items:
-            item.links = [
-                link for link in item.links if link in link_map.values() or link in raw_urls
-            ]
+            item_msg_ids = set(getattr(item, "msg_ids", []))
+            grounded = []
+            for link in item.links:
+                if link in raw_urls or link in link_map.values():
+                    grounded.append(link)
+                elif "t.me/" in link:
+                    parts = link.rstrip("/").split("/")
+                    try:
+                        msg_id = int(parts[-1])
+                        if msg_id in valid_msg_ids or msg_id in item_msg_ids:
+                            grounded.append(link)
+                    except (ValueError, IndexError):
+                        pass
+                else:
+                    grounded.append(link)
+            item.links = grounded
+
+    @staticmethod
+    def _backfill_links(items, link_map):
+        """Ensure items have t.me links for their msg_ids.
+
+        The LLM often fills msg_ids but omits corresponding t.me URLs from links.
+        This constructs them from the link_map so the renderer can show them.
+        """
+        for item in items:
+            existing_tg = {u for u in item.links if "t.me/" in u}
+            for mid in getattr(item, "msg_ids", []):
+                if mid in link_map and link_map[mid] not in existing_tg:
+                    item.links.append(link_map[mid])
 
     async def _repair_link(self, msg_id, messages, topic_id):
         """Attempt active repair of a missing link via Telegram scraper."""

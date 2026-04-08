@@ -38,7 +38,7 @@ class TestAIAgent(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_run_success(self):
-        mock_output = SummarizerOutputSchema(items=[], key_links=[], action_items=[])
+        mock_output = SummarizerOutputSchema(items=[], key_links=[])
         self.mock_provider.generate_structured.return_value = mock_output
 
         input_data = MagicMock()
@@ -52,7 +52,7 @@ class TestAIAgent(unittest.IsolatedAsyncioTestCase):
 
     @patch("time.sleep")
     async def test_run_rate_limit_retry(self, mock_sleep):
-        mock_output = SummarizerOutputSchema(items=[], key_links=[], action_items=[])
+        mock_output = SummarizerOutputSchema(items=[], key_links=[])
 
         self.mock_provider.generate_structured.side_effect = [
             Exception("429 RATE limit exceeded"),

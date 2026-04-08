@@ -7,7 +7,7 @@ authors = [{ name = "Adam", email = "adam@example.com" }]
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.128.0",
-    "httpx>=0.28.1",
+    "httpx[socks]>=0.28.1",
     "pydantic-settings>=2.7.1",
     "python-dotenv>=1.0.1",
     "tenacity>=8.2.3",
@@ -23,6 +23,7 @@ dependencies = [
     "mcp[cli]>=1.25.0",
     "PyYAML>=6.0.1",
     "claude-agent-sdk>=0.1.50",
+    "openai>=2.30.0",
 ]
 
 [project.scripts]

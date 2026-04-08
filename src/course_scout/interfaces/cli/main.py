@@ -282,7 +282,7 @@ async def _scan_all_tasks(scraper, settings, tasks, days, include_today=False):
                 topic_log.info(f"Completed: {msg_count} items extracted")
                 typer.echo(f"   ✅ {name}: {msg_count} items")
                 # Log usage to topic file
-                provider = summarizer.orchestrator.provider
+                provider = list(summarizer.orchestrator._providers.values())[0] if summarizer.orchestrator._providers else None
                 if hasattr(provider, "usage"):
                     for call in provider.usage.calls:
                         topic_log.info(
@@ -362,7 +362,7 @@ DO NOT rank unfulfilled course requests highly — they signal demand but Adam
 can't act on them. Mention them briefly in the Summary section if relevant."""
 
     options = ClaudeAgentOptions(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5",
         system_prompt="You write concise executive summaries for daily art community digests.",
         max_turns=1,
         permission_mode="bypassPermissions",

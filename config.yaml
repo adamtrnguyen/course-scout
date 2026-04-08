@@ -20,108 +20,96 @@ agent_defaults:
 
 prompts:
   course_requests: |
-    You summarize course REQUEST threads from art community Telegram channels.
+    Extract items from art community COURSE REQUEST threads.
+    Telegraphic style — no narrative, just structured data.
 
-    For each request, extract:
-    - Course title (exact, as written)
-    - Instructor/artist name
-    - Platform (Coloso, Domestika, Schoolism, Class 101, Wingfox, Patreon, etc.)
-    - Course URL if shared
-    - Status: UNFULFILLED (no reply with link), FULFILLED (someone shared it), or DISCUSSING
-    - Whether it's tagged for a group buy
+    ITEM TYPES:
+    - category=request: someone asking for a course. Set instructor, platform, status.
+      Priority: LOW if unfulfilled. MEDIUM if fulfilled with link or group buy organizing.
+    - category=file: someone sharing a download link in reply. Set instructor, platform, password, status=FULFILLED.
+      Priority: HIGH.
+    - category=discussion: meta-conversation about availability, alternatives. Priority: LOW.
 
-    INTEREST FILTER — prioritize:
-    - 2D illustration, character design, concept art, anatomy, figure drawing
-    - Color theory, lighting, rendering, digital painting
-    - Asian artists, anime/manga styles
-    De-prioritize: 3D, photography, UI/UX, motion graphics (still include, mark low priority)
+    Note group buy tags. Description: 1 line — what the course covers.
 
     RULES:
-    - Every item MUST reference a specific message ID
-    - Do not hallucinate links not present in the input
+    - msg_ids required for every item
+    - Do not hallucinate links
     - Return valid JSON matching the schema
 
   file_sharing: |
-    You summarize FILE SHARING threads from art community Telegram channels.
+    Extract items from art community FILE SHARING threads.
+    Telegraphic style — no narrative, just structured data.
 
-    For each shared file/course, extract:
-    - Course/file title (translate Chinese/Korean/Japanese titles to English, keep original in parentheses)
-    - Instructor/artist name
-    - Host platform (Baidu Pan, Quark Pan, Google Drive, Telegram direct, Mega, etc.)
-    - Download password if mentioned (PRESERVE EXACTLY — e.g., "pwd: wf6g")
-    - File format notes (split archives, PDF handouts, video quality)
-    - Re-upload requests from members who can't access the host
+    ITEM TYPES:
+    - category=file: shared download. Set instructor, platform (Baidu Pan, Quark Pan, Mega, Telegram),
+      password (PRESERVE EXACTLY), status=FULFILLED. Priority: HIGH.
+    - category=request: re-upload request with no resolution. Priority: LOW.
+    - category=discussion: access help, format questions. Priority: LOW.
 
-    INTEREST FILTER — prioritize:
-    - 2D illustration, character design, anatomy, color theory courses
-    - Asian artist courses (Chinese, Korean, Japanese)
-    De-prioritize: 3D, C4D, Blender, game assets (still include, mark low priority)
+    Translate Chinese/Korean/Japanese titles to English, keep original in parentheses.
+    Note: file format, split archives, video quality, subtitle availability.
 
     RULES:
-    - Every item MUST reference a specific message ID
-    - Preserve ALL passwords and access codes exactly as written
-    - Translate non-English titles but keep originals
-    - Do not hallucinate links not present in the input
+    - msg_ids required for every item
+    - Preserve ALL passwords and access codes exactly
+    - Do not hallucinate links
     - Return valid JSON matching the schema
 
   language_chat: |
-    You summarize MULTILINGUAL CHAT from art community Telegram channels.
+    Extract items from MULTILINGUAL art community chat.
     Messages may be in Russian, Korean, Japanese, Spanish, Portuguese, Persian, Hindi, or Urdu.
+    Telegraphic style — no narrative, just structured data. Translate everything to English.
 
-    Focus on extracting:
-    - Course recommendations or reviews mentioned in conversation
-    - Shared resources (spreadsheets, guides, tool links)
-    - Group buy discussions or interest checks
-    - Technical tips (extraction guides, subtitle info, tool recommendations)
-    - New course drops or availability announcements
+    ITEM TYPES:
+    - category=file: shared download link/resource. Set instructor, platform, password. Priority: HIGH.
+    - category=course: course review or recommendation. Set instructor, platform. Priority: MEDIUM.
+    - category=discussion: technique tip, tool comparison. Set instructor if relevant. Priority: MEDIUM.
+    - category=request: someone asking for something, no resolution. Priority: LOW.
+    - category=announcement: event, stream, new course drop. Priority: MEDIUM.
 
-    Translate all content to English. Preserve original course/artist names.
-    Skip: casual greetings, off-topic gaming/meme discussions, personal chat.
+    Skip casual chat, greetings, memes, off-topic gaming entirely.
 
     RULES:
-    - Every item MUST reference a specific message ID
-    - Do not hallucinate links not present in the input
+    - msg_ids required for every item
+    - Preserve original course/artist names alongside translations
+    - Do not hallucinate links
     - Return valid JSON matching the schema
 
   discussion_lounge: |
-    You summarize ART DISCUSSION threads from community Telegram channels.
+    Extract items from art DISCUSSION threads.
+    Telegraphic style — no narrative, just structured data.
 
-    Focus on extracting:
-    - Art technique discussions (color theory, composition, rendering methods)
-    - Artist/style identification requests and answers
-    - Course reviews and recommendations from members
-    - Shared artwork with community feedback
-    - Tool/software discussions (CSP, Photoshop, Procreate, tablets)
-    - Reference sharing (Instagram reels, ArtStation, Pinterest boards)
+    ITEM TYPES:
+    - category=discussion: technique breakdown, tool comparison, style analysis.
+      Set instructor if about a specific artist/method. Priority: MEDIUM.
+    - category=course: course review or recommendation mentioned in conversation.
+      Set instructor, platform. Priority: MEDIUM if verdict given, LOW if just a mention.
+    - category=file: shared resource (spreadsheet, reference, brush pack).
+      Set platform. Priority: HIGH if downloadable.
+    - category=request: someone asking a question with no answer. Priority: LOW.
 
-    INTEREST FILTER — prioritize:
-    - 2D illustration techniques, character design workflows
-    - Asian artist influences, anime/manga style analysis
-    - Color and lighting technique breakdowns
-    De-prioritize: 3D, photography, UI/UX
+    Skip: casual greetings, memes, reactions without substance.
 
     RULES:
-    - Every item MUST reference a specific message ID
+    - msg_ids required for every item
     - Preserve shared reference URLs exactly
-    - Do not hallucinate links not present in the input
+    - Do not hallucinate links
     - Return valid JSON matching the schema
 
   course_review: |
-    You summarize COURSE REVIEW threads from art community Telegram channels.
+    Extract COURSE REVIEWS from art community Telegram messages.
+    Telegraphic style — no narrative, just structured data.
 
-    For each review, extract:
-    - Course title and instructor
-    - Platform (Coloso, Domestika, etc.)
-    - Rating or sentiment (positive, mixed, negative)
-    - Key takeaways mentioned by reviewers
-    - Skill level suitability (beginner, intermediate, advanced)
-    - Any shared project work or portfolio pieces from the course
-
-    Prioritize courses about 2D illustration, character design, color theory, anatomy.
+    ITEM TYPES:
+    - category=course: the review itself. Set instructor, platform, priority.
+      Description: verdict, skill level, key takeaways.
+      Priority: HIGH if detailed review with clear verdict. MEDIUM if brief opinion.
+    - category=discussion: debate about course quality. Set instructor. Priority: MEDIUM.
 
     RULES:
-    - Every item MUST reference a specific message ID
-    - Do not hallucinate links not present in the input
+    - msg_ids required for every item
+    - Do not hallucinate links
     - Return valid JSON matching the schema
 
 tasks:
@@ -189,54 +177,69 @@ tasks:
     system_prompt: "language_chat"
     actions: ["summarize"]
 
-  # ── Course Requests ──
+  # ── Course Requests (Haiku — just link+title extraction) ──
   - name: "Coloso Requests"
     channel_id: -1001603660516
     topic_id: 3028
     system_prompt: "course_requests"
-    effort: "high"
+    summarizer_model: "claude-haiku-4-5"
+    effort: "low"
     actions: ["summarize"]
 
   - name: "2D Related Requests"
     channel_id: -1001603660516
     topic_id: 381
     system_prompt: "course_requests"
+    summarizer_model: "claude-haiku-4-5"
+    effort: "low"
     actions: ["summarize"]
 
   - name: "Animation Requests"
     channel_id: -1001603660516
     topic_id: 394
     system_prompt: "course_requests"
+    summarizer_model: "claude-haiku-4-5"
+    effort: "low"
     actions: ["summarize"]
 
   - name: "Domestika Requests"
     channel_id: -1001603660516
     topic_id: 3361
     system_prompt: "course_requests"
+    summarizer_model: "claude-haiku-4-5"
+    effort: "low"
     actions: ["summarize"]
 
   - name: "Class 101 Requests"
     channel_id: -1001603660516
     topic_id: 83
     system_prompt: "course_requests"
+    summarizer_model: "claude-haiku-4-5"
+    effort: "low"
     actions: ["summarize"]
 
   - name: "Wingfox/Yiihuu Requests"
     channel_id: -1001603660516
     topic_id: 8500
     system_prompt: "course_requests"
+    summarizer_model: "claude-haiku-4-5"
+    effort: "low"
     actions: ["summarize"]
 
   - name: "Patreon Requests"
     channel_id: -1001603660516
     topic_id: 737
     system_prompt: "course_requests"
+    summarizer_model: "claude-haiku-4-5"
+    effort: "low"
     actions: ["summarize"]
 
   - name: "ALL REQUESTS"
     channel_id: -1001603660516
     topic_id: 925
     system_prompt: "course_requests"
+    summarizer_model: "claude-haiku-4-5"
+    effort: "low"
     actions: ["summarize"]
 
   # ── File Sources ──
@@ -281,4 +284,6 @@ tasks:
   - name: "GBUYB"
     channel_id: -1002588334381
     system_prompt: "course_requests"
+    summarizer_model: "claude-haiku-4-5"
+    effort: "low"
     actions: ["summarize"]

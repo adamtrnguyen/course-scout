@@ -5,15 +5,24 @@ Agents:
 - VerifierAgent: Cross-references summary with original messages.
 """
 
+import json
 import logging
 import time
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from course_scout.domain.models import DigestItem, LinkItem
+from course_scout.domain.models import (
+    AnnouncementItem,
+    CourseItem,
+    DiscussionItem,
+    FileItem,
+    LinkItem,
+    RequestItem,
+)
 from course_scout.domain.services import AIProvider
 from course_scout.infrastructure.providers.claude_provider import ClaudeProvider
+from course_scout.infrastructure.providers.openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +60,83 @@ class SummarizerInputSchema(BaseModel):
     )
 
 
-class SummarizerOutputSchema(BaseModel):
-    """Output from the Summarizer Agent."""
+class RawDigestItem(BaseModel):
+    """Flat schema the LLM produces. Converted to discriminated types post-parse."""
 
-    items: list[DigestItem] = Field(default_factory=list, description="Extracted items")
+    title: str = Field(..., description="Exact course/file/topic name.")
+    description: str = Field(
+        ...,
+        description=(
+            "Telegraphic notes — key facts only, no narrative filler. "
+            "Just: what it is, what's useful, actionable details."
+        ),
+    )
+    category: str = Field(
+        ..., description="One of: course, file, discussion, request, announcement"
+    )
+    msg_ids: list[int] = Field(default_factory=list, description="Source message IDs")
+    links: list[str] = Field(default_factory=list, description="Related URLs")
+    author: str | None = Field(None, description="Who posted it (Telegram username)")
+    instructor: str | None = Field(None, description="Course instructor or artist name")
+    platform: str | None = Field(None, description="Coloso, Baidu Pan, Proko, etc.")
+    status: str | None = Field(None, description="FULFILLED, UNFULFILLED, or DISCUSSING")
+    priority: str | None = Field(
+        None,
+        description=(
+            "HIGH = downloadable course/file with link. "
+            "MEDIUM = review, technique discussion, or fulfilled request. "
+            "LOW = unfulfilled request, off-topic, or 3D/photo/UI."
+        ),
+    )
+    password: str | None = Field(None, description="Download password, preserved exactly")
+
+    def to_domain(self) -> CourseItem | FileItem | DiscussionItem | RequestItem | AnnouncementItem:
+        """Convert flat LLM output to the correct discriminated domain type."""
+        shared = dict(
+            title=self.title,
+            description=self.description,
+            msg_ids=self.msg_ids,
+            links=self.links,
+            author=self.author,
+            instructor=self.instructor,
+            priority=self.priority,
+        )
+        actionable = dict(
+            **shared,
+            platform=self.platform,
+            status=self.status,
+            password=self.password,
+        )
+        type_map = {
+            "course": (CourseItem, actionable),
+            "file": (FileItem, actionable),
+            "request": (RequestItem, actionable),
+            "announcement": (AnnouncementItem, actionable),
+            "discussion": (DiscussionItem, shared),
+        }
+        cls, fields = type_map.get(self.category, (CourseItem, actionable))
+        return cls(**fields)
+
+
+class SummarizerOutputSchema(BaseModel):
+    """Output from the Summarizer Agent. Uses flat items for LLM compatibility."""
+
+    items: list[RawDigestItem] = Field(default_factory=list, description="Extracted items")
     key_links: list[LinkItem] = Field(default_factory=list, description="Important URLs mentioned")
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_json_string_fields(cls, data):
+        """Handle Claude SDK returning list fields as JSON strings instead of parsed lists."""
+        if isinstance(data, dict):
+            for key in ("items", "key_links"):
+                if key in data and isinstance(data[key], str):
+                    data[key] = json.loads(data[key])
+        return data
+
+    def to_domain_items(self) -> list:
+        """Convert raw LLM items to discriminated domain types."""
+        return [item.to_domain() for item in self.items]
 
 
 
@@ -160,31 +241,61 @@ class AIAgent:
 class AgentOrchestrator:
     """Manages the Claude provider and agents."""
 
-    DEFAULT_PROMPT = """You are a Telegram Chat Summarizer for art community channels.
+    DEFAULT_PROMPT = """You extract structured data from art community Telegram messages.
 
-EXTRACT from messages:
-1. Digest items — categorize each as: course, file, discussion, request, or announcement
-2. Key links — URLs shared in messages (course pages, downloads, references)
+STYLE: Telegraphic notes. No narrative filler. No "A member asked...", "It was noted that...".
+Just facts: what it is, what's useful, actionable details.
 
-INTEREST FILTER — prioritize:
-- 2D illustration, character design, concept art
-- Anatomy, figure drawing, gesture drawing
-- Color theory, lighting, rendering techniques
-- Asian artists, anime/manga art styles
-- Digital painting workflows (Photoshop, CSP, Procreate)
-- Art courses (Coloso, Schoolism, CGMA, Domestika, Class 101, Wingfox, etc.)
+ITEM TYPES (set category to pick the right schema):
 
-De-prioritize (still include, but mark as low priority):
-- 3D modeling, game dev, photography, UI/UX, motion graphics
+  course — A course recommendation, review, or shared course.
+    Fields: instructor, platform, status, priority, password (if download).
+    Priority: HIGH if downloadable with link. MEDIUM if review/recommendation. LOW if just a mention.
+
+  file — A shared file, archive, or download link.
+    Fields: instructor, platform, status, priority, password.
+    Priority: HIGH if working download link. MEDIUM if partial/needs re-upload. LOW if broken/inaccessible.
+
+  discussion — A technique discussion, debate, or tool comparison.
+    Fields: instructor (if about a specific artist/method), priority.
+    No platform/status/password — these are conversations, not resources.
+    Priority: MEDIUM if concrete technique tips or verdicts. LOW if vague chat.
+
+  request — Someone asking for a course/resource (no download shared).
+    Fields: instructor, platform, status (FULFILLED/UNFULFILLED/DISCUSSING), priority.
+    Priority: LOW for unfulfilled requests (no actionable value). MEDIUM if fulfilled with link.
+
+  announcement — Community news, event, or moderation notice.
+    Fields: instructor (optional), priority.
+    Priority: MEDIUM if relevant event. LOW if housekeeping.
+
+INTEREST FILTER:
+Prioritize: 2D illustration, character design, concept art, anatomy, figure drawing,
+color theory, lighting, rendering, Asian artists, anime/manga, digital painting.
+De-prioritize: 3D, game dev, photography, UI/UX, motion graphics.
+
+DESCRIPTION: 1-3 short lines of key facts. Put structured data in the typed fields,
+not in the description. Description = what you can't express in the fields.
 
 RULES:
-- Every item MUST reference a specific message ID from the input
-- Preserve download passwords (Baidu Pan, Quark Pan, etc.) exactly as written
-- Translate non-English content to English but preserve original names/titles
+- Every item MUST include msg_ids from the input
+- Preserve download passwords exactly as written
+- Translate non-English content to English, keep original names/titles
 - Group related messages (reply chains) into single items
-- For requests: note if fulfilled or unfulfilled in this batch
 - Do not hallucinate links not present in the input
 - Return valid JSON matching the schema."""
+
+    # Models that route to OpenAI-compatible providers
+    _OPENAI_PROVIDERS = {
+        "deepseek-chat": {
+            "base_url": "https://api.deepseek.com",
+            "env_key": "DEEPSEEK_API_KEY",
+        },
+        "deepseek-reasoner": {
+            "base_url": "https://api.deepseek.com",
+            "env_key": "DEEPSEEK_API_KEY",
+        },
+    }
 
     def __init__(
         self,
@@ -193,8 +304,9 @@ RULES:
         thinking: str = "adaptive",
         effort: str = "medium",
     ):
-        """Initialize with Claude Agent SDK (auth handled automatically)."""
-        self.provider = ClaudeProvider(thinking=thinking, effort=effort)
+        """Initialize with auto-detected provider based on model name."""
+        self.thinking = thinking
+        self.effort = effort
         self.custom_prompt = system_prompt
 
         self.summarizer_models = summarizer_model or [ClaudeModel.SONNET]
@@ -203,11 +315,40 @@ RULES:
 
         self.rate_limiter = RateLimiter(rpm=50)
 
+        # Cache providers — created lazily per model
+        self._providers: dict[str, AIProvider] = {}
+
+    def _get_provider(self, model: str) -> AIProvider:
+        """Get or create the right provider for a model."""
+        if model in self._providers:
+            return self._providers[model]
+
+        if model in self._OPENAI_PROVIDERS:
+            import os
+            cfg = self._OPENAI_PROVIDERS[model]
+            api_key = os.environ.get(cfg["env_key"], "")
+            import os as _os
+            proxy = _os.environ.get("DEEPSEEK_PROXY")
+            provider = OpenAIProvider(
+                api_key=api_key,
+                base_url=cfg["base_url"],
+                default_model=model,
+                proxy=proxy,
+            )
+        else:
+            # Default: Claude Agent SDK
+            provider = ClaudeProvider(thinking=self.thinking, effort=self.effort)
+
+        self._providers[model] = provider
+        return provider
+
     def _get_agent(
         self, models: list[str], system_prompt: str, output_schema: type[BaseModel]
     ) -> AIAgent:
+        # Use the first model's provider
+        provider = self._get_provider(models[0])
         return AIAgent(
-            self.provider,
+            provider,
             models,
             system_prompt,
             output_schema,
