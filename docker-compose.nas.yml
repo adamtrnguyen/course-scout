@@ -1,34 +1,47 @@
 services:
-  # One-shot scanner — exits after completing scan
+  # One-shot scanner — exits after completing scan.
+  # Wrapped with curl-to-Kuma so a push monitor (set KUMA_PUSH_URL in .env)
+  # gets a heartbeat on success and a "down" ping on failure. Kuma alerts
+  # via its own notification channels if no ping arrives within heartbeat.
   course-scout:
     build: .
     container_name: course-scout
-    command: ["course-scout", "scan", "--pdf"]
+    command:
+      - sh
+      - -c
+      - |
+        course-scout scan --pdf
+        EXIT=$?
+        if [ -n "$$KUMA_PUSH_URL" ]; then
+          STATUS=$$([ $$EXIT -eq 0 ] && echo up || echo down)
+          curl -fsS -m 10 "$${KUMA_PUSH_URL}?status=$${STATUS}&msg=exit_$${EXIT}" >/dev/null || true
+        fi
+        exit $$EXIT
+    network_mode: host
     volumes:
-      - cs-reports:/app/reports
-      - cs-logs:/app/logs
-      - cs-media:/app/media_cache
-      - cs-data:/app/data
-      - /home/Adam/.claude:/home/appuser/.claude:ro
-      - /home/Adam/.claude.json:/home/appuser/.claude.json:ro
+      # Reports live on NAS home (SMB-shared as /Volumes/personal_folder/ on Mac).
+      - /volume2/@home/Adam/course-scout-reports:/app/reports
+      # Migrated from named volumes cs-logs, cs-media, cs-data 2026-05-14
+      - /volume1/docker/course-scout/logs:/app/logs
+      - /volume1/docker/course-scout/media:/app/media_cache
+      - /volume1/docker/course-scout/data:/app/data
       - /home/Adam/course-scout-session/course_scout.session:/app/course_scout.session
-      - /home/Adam/.local/bin/claude:/usr/local/bin/claude:ro
+      # SSH key for delivering TaskNotes to Mac vault over tailscale.
+      - /home/Adam/.ssh/id_ed25519:/home/appuser/.ssh/id_ed25519:ro
+      # Mount config.yaml as volume so task additions don't require image rebuild.
+      - /home/Adam/course-scout-config/config.yaml:/app/config.yaml:ro
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
+      - COURSE_SCOUT_LOG_FORMAT=json
     restart: "no"
 
-  # Triggers course-scout daily at 1am
   scheduler:
     image: docker:cli
     container_name: course-scout-cron
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     entrypoint: sh
-    command: -c "echo '0 1 * * * docker start -a course-scout' | crontab - && crond -f -l 2"
+    command: -c "echo '0 1 * * 0 docker start course-scout' | crontab - && crond -f -l 2"
     restart: unless-stopped
-
-volumes:
-  cs-reports:
-  cs-logs:
-  cs-media:
-  cs-data:

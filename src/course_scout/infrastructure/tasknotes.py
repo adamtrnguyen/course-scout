@@ -86,8 +86,18 @@ class TaskNotesPublisher:
         # root, not to a subfolder named Inbox.
         self.tasks_dir = self.vault_dir / "TaskNotes"
 
-    def publish(self, report_md: Path, report_pdf: Path | None = None) -> Path:
-        """Generate the stub and write it to the Inbox. Returns the stub path."""
+    def publish(
+        self,
+        report_md: Path,
+        report_pdf: Path | None = None,
+        report_md_url: str | None = None,
+        report_pdf_url: str | None = None,
+    ) -> Path:
+        """Generate the stub and write it to the Inbox. Returns the stub path.
+
+        URL overrides let callers (e.g. SSH publisher) point the inline links
+        at the destination machine's filesystem instead of the local one.
+        """
         report_md = report_md.expanduser().resolve()
         if not report_md.is_file():
             raise FileNotFoundError(f"report markdown not found: {report_md}")
@@ -130,12 +140,14 @@ class TaskNotesPublisher:
 
         body_parts.append("---")
         body_parts.append("")
-        if report_pdf is not None:
-            # `skim://<absolute-path>` opens the PDF in Skim.app on click.
-            # Skim is the user's default PDF handler; this avoids the file:///
-            # → Preview.app fallback that loses page navigation niceties.
-            body_parts.append(f"[📄 Open full report in Skim →](skim://{report_pdf})")
-        body_parts.append(f"[📝 Open full markdown →](file://{report_md})")
+        # `skim://<absolute-path>` opens the PDF in Skim.app on click.
+        # Skim is the user's default PDF handler; this avoids the file:///
+        # → Preview.app fallback that loses page navigation niceties.
+        pdf_url = report_pdf_url or (f"skim://{report_pdf}" if report_pdf is not None else None)
+        md_url = report_md_url or f"file://{report_md}"
+        if pdf_url:
+            body_parts.append(f"[📄 Open full report in Skim →]({pdf_url})")
+        body_parts.append(f"[📝 Open full markdown →]({md_url})")
 
         # Frontmatter follows the user's TaskNotes plugin convention
         # (.obsidian/plugins/tasknotes/data.json):

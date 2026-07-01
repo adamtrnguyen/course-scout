@@ -2,7 +2,7 @@
 
 ## Overview
 
-Telegram art channel scanner. Fetches messages via Telethon with rich metadata (reactions/views/forwards, document filenames, link previews, pinned-message tracking), runs a per-image vision pre-compute pass (Haiku captions cached to disk), classifies via Claude Agent SDK with per-channel system prompts, and ranks via a two-stage LLM pipeline (categorize → preference). Produces daily digest reports (markdown + PDF) with a Top 5 executive summary and native-app deep links.
+Telegram art channel scanner. Fetches messages via Telethon with rich metadata (reactions/views/forwards, document filenames, link previews, pinned-message tracking), runs a per-image vision pre-compute pass (Haiku captions cached to disk), classifies via Claude Agent SDK with per-channel system prompts, and ranks via a two-stage LLM pipeline (categorize → preference). Produces weekly digest reports (markdown + PDF) with a Top 5 executive summary and native-app deep links. NAS cron: Sundays at 1am (`0 1 * * 0`).
 
 ## Architecture
 
@@ -100,20 +100,20 @@ command has been removed; everything goes through `scan`.
 
 ## TaskNotes Publishing
 
-The daily flow is integrated: `scan` auto-publishes a TaskNotes Inbox stub
+The weekly flow is integrated: `scan` auto-publishes a TaskNotes Inbox stub
 at the end of every full run. The standalone `post-task` command remains
 for re-publishing an older report on demand.
 
 **Auto-publish rules** (in `interfaces/cli/main.py::_maybe_publish_task`):
 
 - Default ON for full scans. Skip with `--no-publish-task`.
-- Skipped automatically for `--topic` runs (single-topic = ad-hoc, not daily).
+- Skipped automatically for `--topic` runs (single-topic = ad-hoc, not weekly).
 - Best-effort: if the resolved vault dir doesn't exist (NAS Docker without a
   vault mount), it logs and moves on. The scan never fails because TaskNotes
   publishing failed.
 
 The `post-task` command writes a TaskNotes-formatted stub of the most recent
-scan into the user's Obsidian vault Inbox so the daily digest surfaces as an
+scan into the user's Obsidian vault Inbox so the weekly digest surfaces as an
 actionable task.
 
 - Source module: `infrastructure/tasknotes.py` (`TaskNotesPublisher`)
@@ -461,7 +461,7 @@ Reviewer critique flagged these as possible dead code. Instrument via `logs/over
 ### Docker / NAS Deployment
 
 - Dockerfile for scheduled scans on UGREEN NAS
-- Cron-based daily scan with Telegram notification of results
+- Cron-based weekly scan (Sundays 1am) with Telegram notification of results
 - Session file persistence across container restarts
 
 ### Claude Agent SDK Enhancements

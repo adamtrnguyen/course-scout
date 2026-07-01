@@ -135,14 +135,20 @@ def _filter_tasks_by_topic(
 def _maybe_publish_task(md_path: str, pdf_generated: bool) -> None:
     """Publish a TaskNotes Inbox stub from the just-written report.
 
-    Best-effort: failures (vault dir missing, OS errors, etc.) are logged but
-    do not propagate. Daily Mac-side runs get a kanban-ready stub; NAS Docker
-    runs that pass --no-publish-task skip this entirely; everything in between
-    degrades gracefully.
+    Three branches:
+      1. OBSIDIAN_VAULT_HOST set → ssh+cat the stub into the remote vault
+         (NAS Docker → Mac via tailscale, primary path).
+      2. Local vault dir exists → write directly (Mac-native runs).
+      3. Neither → silently skip.
     """
     from pathlib import Path
 
     from course_scout.infrastructure.tasknotes import TaskNotesPublisher
+
+    ssh_host = os.environ.get("OBSIDIAN_VAULT_HOST")
+    if ssh_host:
+        _publish_via_ssh(md_path, pdf_generated, ssh_host)
+        return
 
     try:
         publisher = TaskNotesPublisher()
@@ -163,6 +169,84 @@ def _maybe_publish_task(md_path: str, pdf_generated: bool) -> None:
     except Exception as e:
         logger.warning("TaskNotes publish failed: %s", e, exc_info=True)
         typer.echo(f"⚠️  TaskNotes publish skipped: {e}")
+
+
+def _publish_via_ssh(md_path: str, pdf_generated: bool, host: str) -> None:
+    """ssh+cat the TaskNote stub to Mac vault with NAS-via-SMB URIs.
+
+    Reports themselves stay on the NAS (bind-mounted to /app/reports inside
+    the container, served to Mac as /Volumes/<share>/course-scout-reports
+    via SMB). The TaskNote stub is just lightweight markdown — that goes in
+    the vault. The skim:// / file:// URIs point at the Mac-side SMB path so
+    clicks open the NAS-hosted file.
+    """
+    import shlex
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    from course_scout.infrastructure.tasknotes import TaskNotesPublisher
+
+    user = os.environ.get("OBSIDIAN_VAULT_USER", "adam")
+    remote_vault = os.environ.get(
+        "OBSIDIAN_VAULT_DIR",
+        "/Users/adam/Library/CloudStorage/OneDrive-Personal/Obsidian Vault",
+    )
+    # Mac-side path that resolves to the same files we wrote at /app/reports.
+    # Default: /app/reports → /Volumes/personal_folder/course-scout-reports.
+    container_reports_root = os.environ.get("REPORTS_DIR_LOCAL", "/app/reports")
+    mac_reports_root = os.environ.get(
+        "REPORTS_DIR_REMOTE",
+        "/Volumes/personal_folder/course-scout-reports",
+    )
+    target = f"{user}@{host}"
+
+    def to_mac_path(local: Path) -> str:
+        s = str(local)
+        if s.startswith(container_reports_root):
+            return mac_reports_root + s[len(container_reports_root) :]
+        return s
+
+    try:
+        # Resolve to absolute — caller may pass "reports/..." relative to /app.
+        md = Path(md_path).resolve()
+        pdf_path = md.with_suffix(".pdf") if pdf_generated else None
+        if pdf_path is not None and not pdf_path.is_file():
+            pdf_path = None
+
+        remote_md = to_mac_path(md)
+        remote_pdf = to_mac_path(pdf_path) if pdf_path else None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            publisher = TaskNotesPublisher(vault_dir=Path(tmpdir))
+            stub_local = publisher.publish(
+                md,
+                pdf_path,
+                report_md_url=f"file://{remote_md}",
+                report_pdf_url=f"skim://{remote_pdf}" if remote_pdf else None,
+            )
+
+            relative = stub_local.relative_to(Path(tmpdir))
+            remote_stub = f"{remote_vault}/{relative.as_posix()}"
+            remote_parent = str(Path(remote_stub).parent)
+
+            remote_cmd = (
+                f"mkdir -p {shlex.quote(remote_parent)} && cat > {shlex.quote(remote_stub)}"
+            )
+            subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", target, remote_cmd],
+                input=stub_local.read_bytes(),
+                check=True,
+                timeout=30,
+            )
+        typer.echo(f"📌 TaskNotes stub via ssh → {target}:{remote_stub}")
+        typer.echo(f"   reports referenced via {mac_reports_root}/ (NAS-served)")
+    except subprocess.CalledProcessError as e:
+        logger.warning("ssh publish failed (exit %d): %s", e.returncode, e)
+        typer.echo(f"⚠️  TaskNotes ssh publish failed: exit {e.returncode}")
+    except Exception as e:
+        logger.warning("ssh publish failed: %s", e, exc_info=True)
+        typer.echo(f"⚠️  TaskNotes ssh publish failed: {e}")
 
 
 def _output_combined_report(
@@ -261,6 +345,13 @@ def scan(
     if not settings.tasks:
         typer.echo("No tasks configured in config.yaml.")
         raise typer.Exit(code=1)
+
+    # Pre-flight: if Claude OAuth quota is exhausted, sleep until 5h reset.
+    # No-op when CLAUDE_RATE_LIMIT_WAIT=0 or the usage endpoint is unavailable.
+    if os.environ.get("CLAUDE_RATE_LIMIT_WAIT", "1") != "0":
+        from course_scout.infrastructure.rate_limit import wait_for_quota
+
+        wait_for_quota()
 
     scraper = TelethonScraper(
         settings.tg_api_id,

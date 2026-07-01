@@ -262,11 +262,22 @@ class AIAgent:
                     error_str = str(e).upper()
                     if "RATE" in error_str or "429" in error_str:
                         retries += 1
-                        logger.warning(
-                            f"Rate limit hit for {model}. Sleeping {rt.rate_limit_retry_sleep}s "
-                            f"before retry {retries}/{rt.max_retries}..."
+                        # Probe response headers to sleep precisely until the
+                        # gating window resets, instead of a fixed-interval
+                        # poll-and-fail. Falls back to rate_limit_retry_sleep
+                        # if the probe can't reach the API or headers are
+                        # missing.
+                        from course_scout.infrastructure.rate_limit import (
+                            await_window_reset,
                         )
-                        await asyncio.sleep(rt.rate_limit_retry_sleep)
+
+                        logger.warning(
+                            f"Rate limit hit for {model} (retry {retries}/"
+                            f"{rt.max_retries}). Querying reset window..."
+                        )
+                        await await_window_reset(
+                            fallback_seconds=rt.rate_limit_retry_sleep,
+                        )
                     else:
                         logger.error(f"Error in agent {model}: {e}")
                         break

@@ -390,6 +390,12 @@ tasks:
     system_prompt: "file_sharing"
     actions: ["summarize"]
 
+  - name: "Reference Zone"
+    channel_id: -1001603660516
+    topic_id: 5492
+    system_prompt: "file_sharing"
+    actions: ["summarize"]
+
   - name: "Group-buy Chit Chat"
     channel_id: -1001603660516
     topic_id: 87
